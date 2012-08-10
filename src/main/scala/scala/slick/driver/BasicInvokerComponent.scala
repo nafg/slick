@@ -2,7 +2,7 @@ package scala.slick.driver
 
 import java.sql.{Statement, PreparedStatement}
 import scala.slick.SlickException
-import scala.slick.ql.{Query, Shape, ShapedValue}
+import scala.slick.ql.{Query, Shape, ShapedValue, Column}
 import scala.slick.session.{Session, PositionedParameters, PositionedResult}
 import scala.slick.util.RecordLinearizer
 import scala.slick.jdbc.{UnitInvokerMixin, MutatingStatementInvoker, MutatingUnitInvoker}
@@ -44,6 +44,10 @@ trait BasicInvokerComponent { driver: BasicDriver =>
 
     def useBatchUpdates(implicit session: Session) = session.capabilities.supportsBatchUpdates
 
+    private val columnName: Column[_] => String = c => c.nodeDelegate match {
+      case scala.slick.ast.Select(_, scala.slick.ast.FieldSymbol(name)) => name
+      case _ => sys.error("Invalid column: " + c)
+    }
     /**
      * Insert a single row.
      */
@@ -53,8 +57,19 @@ trait BasicInvokerComponent { driver: BasicDriver =>
       st.executeUpdate()
     }
 
+    def inserting[A](value: U, autogenColumns: Seq[Column[_]])(handleStatement: PreparedStatement=>A)(implicit session: Session): A =
+      session.withPreparedInsertStatement(insertStatement, autogenColumns.map(columnName)) { st =>
+        st.clearParameters()
+        unpackable.linearizer.narrowedLinearizer.asInstanceOf[RecordLinearizer[U]].setParameter(driver, new PositionedParameters(st), Some(value))
+        st.executeUpdate()
+        handleStatement(st)
+      }
+
     def insertExpr[TT](c: TT)(implicit shape: Shape[TT, U, _], session: Session): Int =
       insert(Query(c)(shape))(session)
+
+    def insertingExpr[TT, A](c: TT, autogenColumns: Seq[Column[_]])(handleStatement: PreparedStatement=>A)(implicit shape: Shape[TT, U, _], session: Session): A =
+      inserting(Query(c)(shape), autogenColumns)(handleStatement)(session)
 
     /**
      * Insert multiple rows. Uses JDBC's batch update feature if supported by
@@ -91,6 +106,16 @@ trait BasicInvokerComponent { driver: BasicDriver =>
         st.clearParameters()
         sbr.setter(new PositionedParameters(st), null)
         st.executeUpdate()
+      }
+    }
+
+    def inserting[TT, A](query: Query[TT, U], autogenColumns: Seq[Column[_]])(handleStatement: PreparedStatement=>A)(implicit session: Session): A = {
+      val sbr = buildInsertStatement(unpackable.value, query)
+      session.withPreparedInsertStatement(insertStatementFor(query), autogenColumns map (columnName)) { st =>
+        st.clearParameters()
+        sbr.setter(new PositionedParameters(st), null)
+        st.executeUpdate()
+        handleStatement(st)
       }
     }
 
