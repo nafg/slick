@@ -58,7 +58,7 @@ object CodeGen {
       case TINYINT => "Byte"
       case SMALLINT => "Short"
       case INTEGER => "Int"
-      case BIGINT => "BigInteger"
+      case BIGINT => "Long"
       case FLOAT => "Float"
       case REAL | DOUBLE => "Double"
       case NUMERIC | DECIMAL => "BigDecimal"
